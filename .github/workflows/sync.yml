@@ -1,0 +1,30 @@
+name: Actualizar Datos INEGI
+on:
+  schedule:
+    - cron: '15 12 * * *'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Instalar dependencias
+        run: pip install requests pandas
+      - name: Descargar datos INEGI
+        env:
+          INEGI_TOKEN: ${{ secrets.INEGI_TOKEN }}
+        run: python actualizar_balanza.py
+      - name: Guardar JSON actualizado
+        run: |
+          git config user.name "Bot Comercio Exterior"
+          git config user.email "bot@github.com"
+          git add balanza_comercial_mx.json
+          git commit -m "Actualización automática INEGI" || exit 0
+          git push
