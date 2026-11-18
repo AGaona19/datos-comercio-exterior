@@ -4,8 +4,7 @@ import requests
 import pandas as pd
 from datetime import datetime
 
-TOKEN = os.environ.get("4e124a28-6ca3-69e7-807f-a071416f495d
-", "").strip("[]")
+TOKEN = os.environ.get("4e124a28-6ca3-69e7-807f-a071416f495d", "").strip("[]")
 IDIOMA = "es"
 AREA_GEOGRAFICA = "00"
 
