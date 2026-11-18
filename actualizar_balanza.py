@@ -18,9 +18,28 @@ IDS_SELECCIONADOS = (
     "940,206144,206145,941"
 )
 
-def dividir_en_lotes(lista, tamano=10):
-    for i in range(0, len(lista), tamano):
-        yield lista[i:i + tamano]
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "Accept": "application/json"
+}
+
+def consultar_indicador(ind_id):
+    # Intenta primero en BIE y si no devuelve JSON válido, intenta en BISE
+    for fuente in ["BIE", "BISE"]:
+        url = (
+            f"https://www.inegi.org.mx/app/api/indicadores/desarrolladores/jsonxml/"
+            f"INDICATOR/{ind_id}/{IDIOMA}/{AREA_GEOGRAFICA}/false/"
+            f"{fuente}/2.0/{TOKEN}?type=json"
+        )
+        try:
+            resp = requests.get(url, headers=HEADERS, timeout=25)
+            if resp.status_code == 200 and resp.text.strip().startswith("{"):
+                data = resp.json()
+                if "Series" in data and len(data["Series"]) > 0:
+                    return data["Series"]
+        except Exception:
+            continue
+    return []
 
 def obtener_datos_inegi():
     if not TOKEN:
@@ -28,44 +47,41 @@ def obtener_datos_inegi():
 
     lista_ids = [x.strip() for x in IDS_SELECCIONADOS.split(",") if x.strip()]
     registros_limpios = []
+    exitosos = 0
 
-    for lote in dividir_en_lotes(lista_ids, 10):
-        ids_str = ",".join(lote)
-        url = (
-            f"https://www.inegi.org.mx/app/api/indicadores/desarrolladores/jsonxml/"
-            f"INDICATOR/{ids_str}/{IDIOMA}/{AREA_GEOGRAFICA}/false/"
-            f"BIE/2.0/{TOKEN}?type=json"
-        )
+    for ind_id in lista_ids:
+        series = consultar_indicador(ind_id)
+        if series:
+            exitosos += 1
+            for serie in series:
+                ultima_actualizacion = serie.get("LASTUPDATE")
+                for obs in serie.get("OBSERVATIONS", []):
+                    periodo = obs.get("TIME_PERIOD")
+                    valor_str = obs.get("OBS_VALUE")
+                    estatus = obs.get("OBS_STATUS")
 
-        respuesta = requests.get(url, timeout=30)
-        respuesta.raise_for_status()
-        datos_crudos = respuesta.json()
+                    try:
+                        valor = float(valor_str) if valor_str not in (None, "", "C") else None
+                    except ValueError:
+                        valor = None
 
-        for serie in datos_crudos.get("Series", []):
-            indicador_id = serie.get("INDICADOR")
-            ultima_actualizacion = serie.get("LASTUPDATE")
+                    registros_limpios.append({
+                        "indicador_id": str(ind_id),
+                        "periodo": periodo,
+                        "valor": valor,
+                        "estatus_dato": estatus,
+                        "fecha_actualizacion_inegi": ultima_actualizacion
+                    })
+        else:
+            print(f"Aviso: El indicador {ind_id} no devolvió datos en BIE ni BISE.")
 
-            for obs in serie.get("OBSERVATIONS", []):
-                periodo = obs.get("TIME_PERIOD")
-                valor_str = obs.get("OBS_VALUE")
-                estatus = obs.get("OBS_STATUS")
+        time.sleep(0.3)
 
-                try:
-                    valor = float(valor_str) if valor_str not in (None, "", "C") else None
-                except ValueError:
-                    valor = None
-
-                registros_limpios.append({
-                    "indicador_id": indicador_id,
-                    "periodo": periodo,
-                    "valor": valor,
-                    "estatus_dato": estatus,
-                    "fecha_actualizacion_inegi": ultima_actualizacion
-                })
-
-        time.sleep(1)
+    if not registros_limpios:
+        raise RuntimeError("No se pudo extraer ningún dato. Verifica que el token del INEGI sea válido y esté activo.")
 
     df = pd.DataFrame(registros_limpios)
+    print(f"Indicadores descargados con éxito: {exitosos} de {len(lista_ids)}")
     return df.sort_values(by=["periodo", "indicador_id"], ascending=[False, True])
 
 if __name__ == "__main__":
